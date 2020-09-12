@@ -1,0 +1,5 @@
+matplotlib
+rezero
+torch
+tqdm
+wandb
