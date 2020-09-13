@@ -38,9 +38,8 @@ def _loss_func(it, model, device):
     return loss
 
 
-def train(model, optimizer, device, train_dataloader, test_dataloader, args):
-    train_loss = 0.
-    iteration = 0
+def _train(model, optimizer, device, train_dataloader, test_dataloader, args):
+    train_loss, test_loss, iteration = 0., 0., 0
     model = model.to(device)
     start_time = time.perf_counter()
     test_iter = iter(test_dataloader)
@@ -48,7 +47,7 @@ def train(model, optimizer, device, train_dataloader, test_dataloader, args):
     loss_func = partial(_loss_func, model=model, device=device)
     oclr = OneCycleLR(optimizer, args.learning_rate, pct_start=0.01, total_steps=1_000_000, cycle_momentum=False)
 
-    for iteration in range(args.num_training_steps):
+    for iteration in range(1, 1 + args.num_training_steps):
         loss = loss_func(train_iter)
         optimizer.zero_grad()
         loss.backward()
@@ -66,31 +65,30 @@ def train(model, optimizer, device, train_dataloader, test_dataloader, args):
                 'args': args
             }, ckpt)
 
-        if iteration % args.log_freq == 0:
-            train_loss = train_loss.item() / args.log_freq
-
+        if iteration % 20 == 0:
             with torch.no_grad():
                 model.eval()
-                test_loss = 0.
-                for _ in range(args.num_test_steps):
-                    test_loss += loss_func(test_iter).detach()
-                test_loss = test_loss.item() / args.num_test_steps
+                test_loss += loss_func(test_iter).detach()
                 model.train()
 
+        if iteration % args.log_freq == 0:
+            train_loss = train_loss.item() / args.log_freq
+            test_loss = test_loss.item() / (args.log_freq // 20)
             end_time = time.perf_counter()
             duration, start_time = end_time - start_time, end_time
             lr = oclr.get_last_lr()[0]
-            print(
-                f'Iteration {iteration:07d}  Train loss {train_loss:.3f}  Test loss {test_loss:.3f}  LR {lr:.3e}  Duration {duration:.3f}')
+            with torch.no_grad():
+                model.eval()
+                cat = random.randrange(0, len(dataset.categories))
+                sample = generate(model, device, cat)
+                model.train()
             train_sample = next(train_iter)[0, :]
             test_sample = next(test_iter)[0, :]
             plot_encoded_figure(train_sample[:, 0].tolist(), train_sample[0, 2], 'train_sample.png')
             plot_encoded_figure(test_sample[:, 0].tolist(), test_sample[0, 2], 'test_sample.png')
-
-            cat = random.randrange(0, len(dataset.categories))
-            sample = generate(model, device, cat)
             plot_encoded_figure(sample, cat, 'random_sample.png')
-
+            print(
+                f'Iteration {iteration:07d}  Train loss {train_loss:.3f}  Test loss {test_loss:.3f}  LR {lr:.3e}  Duration {duration:.3f}')
             if args.use_wandb:
                 wandb.log({
                     'iteration': iteration,
@@ -102,20 +100,19 @@ def train(model, optimizer, device, train_dataloader, test_dataloader, args):
                     'test sample': wandb.Image('test_sample.png'),
                     'random sample': wandb.Image('random_sample.png'),
                 })
-            train_loss = 0.
+            train_loss, test_loss = 0., 0.
 
 
 def main():
     parser = ArgumentParser()
-    parser.add_argument('--batch-size', default=128, type=int)
+    parser.add_argument('--batch-size', default=64, type=int)
     parser.add_argument('--device', default='cuda', type=str)
-    parser.add_argument('--dropout-rate', default=0.1, type=float)
+    parser.add_argument('--dropout-rate', default=0.2, type=float)
     parser.add_argument('--embed-dim', default=256, type=int)
-    parser.add_argument('--learning-rate', default=3e-4, type=float)
+    parser.add_argument('--learning-rate', default=1e-4, type=float)
     parser.add_argument('--log-freq', default=1000, type=int)
     parser.add_argument('--num-att-heads', default=4, type=int)
     parser.add_argument('--num-sketch-classes', default=345, type=int)
-    parser.add_argument('--num-test-steps', default=100, type=int)
     parser.add_argument('--num-training-steps', default=1_000_000, type=int)
     parser.add_argument('--num-transformer-layers', default=12, type=int)
     parser.add_argument('--resume', default=None, type=str)
@@ -142,7 +139,7 @@ def main():
         model.load_state_dict(dic['model_state_dict'])
         optimizer.load_state_dict(dic['optimizer_state_dict'])
 
-    train(model, optimizer, device, train_dataloader, test_dataloader, args)
+    _train(model, optimizer, device, train_dataloader, test_dataloader, args)
 
 
 if __name__ == "__main__":

@@ -3,15 +3,19 @@ import os
 import struct
 import time
 import urllib.parse
+from concurrent import futures
 from functools import partial
-from multiprocessing.pool import ThreadPool
-from queue import Queue
+from multiprocessing import Pool
+from pathlib import Path
 from struct import unpack
-from urllib.request import urlopen
+from urllib.request import urlopen, urlretrieve
 
 import numpy as np
 import torch
 import tqdm
+
+binary_data_dir = Path('data/binary')
+base_url = 'https://storage.googleapis.com/quickdraw_dataset/full/binary'
 
 categories = ['aircraft carrier', 'airplane', 'alarm clock', 'ambulance', 'angel', 'animal migration', 'ant', 'anvil', 'apple', 'arm', 'asparagus', 'axe', 'backpack', 'banana', 'bandage', 'barn', 'baseball', 'baseball bat', 'basket', 'basketball',
               'bat', 'bathtub', 'beach', 'bear', 'beard', 'bed', 'bee', 'belt', 'bench', 'bicycle', 'binoculars', 'bird', 'birthday cake', 'blackberry', 'blueberry', 'book', 'boomerang', 'bottlecap', 'bowtie', 'bracelet', 'brain', 'bread', 'bridge',
@@ -30,8 +34,6 @@ categories = ['aircraft carrier', 'airplane', 'alarm clock', 'ambulance', 'angel
               'table', 'teapot', 'teddy-bear', 'telephone', 'television', 'tennis racquet', 'tent', 'The Eiffel Tower', 'The Great Wall of China', 'The Mona Lisa', 'tiger', 'toaster', 'toe', 'toilet', 'tooth', 'toothbrush', 'toothpaste', 'tornado',
               'tractor', 'traffic light', 'train', 'tree', 'triangle', 'trombone', 'truck', 'trumpet', 't-shirt', 'umbrella', 'underwear', 'van', 'vase', 'violin', 'washing machine', 'watermelon', 'waterslide', 'whale', 'wheel', 'windmill',
               'wine bottle', 'wine glass', 'wristwatch', 'yoga', 'zebra', 'zigzag']
-
-categories = ['cat']
 
 
 def unpack_drawing(file_handle):
@@ -94,40 +96,53 @@ def encode_figure(fig):
     return out[..., 0][:], out[..., 1][:]
 
 
-def data_stream(cat, Q, mode):
+def seq_data(mode='train'):
+    def init_all_files():
+        return [[open(binary_data_dir / f'{cat}.bin', 'rb'), 0] for cat in categories]
+
+    def close_all_files(fs):
+        for f in fs:
+            f[0].close()
+
+    def reset_file(con, cat):
+        con[0].close()
+        con[0] = open(binary_data_dir / f'{cat}.bin', 'rb')
+        con[1] = 0
+
+    fs = init_all_files()
     while True:
-        base_url = 'https://storage.googleapis.com/quickdraw_dataset/full/binary'
-        url = f'{base_url}/{urllib.parse.quote(cat)}.bin'
-        fig_class = categories.index(cat)
-        res = urlopen(url)
-        c = 0
-        while True:
+        for i in range(len(categories)):
             try:
-                fig = unpack_drawing(res)
-                c = c + 1
-                if c <= 2 * 1024 and mode == 'test':
-                    token, pos = encode_figure(fig['image'])
-                    Q.put((fig_class, token, pos))
-                elif c > 2 * 1024 and mode == 'train':
-                    token, pos = encode_figure(fig['image'])
-                    Q.put((fig_class, token, pos))
-                elif c > 2 * 1024 and mode == 'test':
-                    break
+                fig = unpack_drawing(fs[i][0])
+                fs[i][1] += 1
+                if mode == 'train' and fs[i][1] > 1024:
+                    yield (i, *encode_figure(fig['image']))
+                elif mode == 'test' and fs[i][1] <= 1024:
+                    yield (i, *encode_figure(fig['image']))
+                elif mode == 'test' and fs[i][1] > 1024:
+                    close_all_files(fs)
+                    fs = init_all_files()
             except struct.error:
-                break
-        res.close()
-        del res
+                reset_file(fs[i], categories[i])
+
+
+def _downloader(cat):
+    urlretrieve(f'{base_url}/{urllib.parse.quote(cat)}.bin', binary_data_dir / f'{cat}.bin')
+
+
+def _download_binary_data():
+    print("Download binary datasets...")
+    with Pool(16) as p:
+        list(tqdm.tqdm(p.imap(_downloader, categories), total=len(categories)))
 
 
 class DrawQuick(torch.utils.data.IterableDataset):
     def __init__(self, mode='train'):
         super().__init__()
-        self.dataQ = None
-        self.pool = None
         self.mode = mode
-
-    def __next__(self):
-        return self.dataQ.get()
+        if not binary_data_dir.exists():
+            binary_data_dir.mkdir(parents=True, exist_ok=True)
+            _download_binary_data()
 
     def __repr__(self):
         return (
@@ -136,17 +151,8 @@ class DrawQuick(torch.utils.data.IterableDataset):
             f'Num. classes: {len(categories)}\n'
         )
 
-    def prepare_pool(self):
-        del self.dataQ
-        del self.pool
-        self.dataQ = Queue(maxsize=10 * 1024)
-        f = partial(data_stream, Q=self.dataQ, mode=self.mode)
-        self.pool = ThreadPool(len(categories)).map_async(f, categories)
-        time.sleep(1)
-
     def __iter__(self):
-        self.prepare_pool()
-        return self
+        return seq_data(self.mode)
 
 
 def dq_collate(batch):
@@ -165,9 +171,8 @@ def dq_collate(batch):
 
 
 if __name__ == '__main__':
-    dset = DrawQuick()
+    dset = DrawQuick('train')
     train_dataloader = torch.utils.data.DataLoader(
         dset, batch_size=128, num_workers=1, collate_fn=dq_collate)
-
     for batch in tqdm.tqdm(train_dataloader):
         pass

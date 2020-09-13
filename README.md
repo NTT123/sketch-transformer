@@ -5,4 +5,4 @@ Modeling Draw, Quick! dataset using transformers
     $ python train.py
 
 ## Generate sample
-    $ python generate.py --category=cat --checkpoint=[path-to-checkpoint.ckpt]
+    $ python generate.py --category=cat --checkpoint=[path-to-checkpoint.pt]
