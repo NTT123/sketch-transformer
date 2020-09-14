@@ -48,7 +48,7 @@ class SketchModel(nn.Module):
         v = self.value_embed(v)
         p = self.pos_embed(p)
         c = self.class_embed(c)
-        src = (v + p + c) * math.sqrt(self.ninp)
+        src = v + p + c
         output = self.transformer_encoder(src, self.src_mask)
         output = self.decoder(output)
         return output
@@ -62,7 +62,7 @@ def create_model(args):
                         nhid=4 * args.embed_dim,
                         ninp=args.embed_dim,
                         nlayers=args.num_transformer_layers,
-                        ntoken=args.vocab_size)
+                        ntoken=args.vocab_size).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     return model, device, optimizer

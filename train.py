@@ -4,6 +4,7 @@ import random
 import tempfile
 import time
 from argparse import ArgumentParser
+from collections import deque
 from functools import partial
 
 import torch
@@ -38,8 +39,9 @@ def _loss_func(it, model, device):
     return loss
 
 
-def _train(model, optimizer, device, train_dataloader, test_dataloader, args):
-    train_loss, test_loss, iteration = 0., 0., 0
+def _train(start_iteration, model, optimizer, device, train_dataloader, test_dataloader, args):
+    train_loss = deque(maxlen=args.log_freq)
+    test_loss = deque(maxlen=args.log_freq)
     model = model.to(device)
     start_time = time.perf_counter()
     test_iter = iter(test_dataloader)
@@ -47,13 +49,13 @@ def _train(model, optimizer, device, train_dataloader, test_dataloader, args):
     loss_func = partial(_loss_func, model=model, device=device)
     oclr = OneCycleLR(optimizer, args.learning_rate, pct_start=0.01, total_steps=1_000_000, cycle_momentum=False)
 
-    for iteration in range(1, 1 + args.num_training_steps):
+    for iteration in range(start_iteration, 1 + args.num_training_steps):
         loss = loss_func(train_iter)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         oclr.step()
-        train_loss += loss.detach()
+        train_loss.append(loss.detach())
 
         if iteration % (10 * args.log_freq) == 0:
             ckpt = f'checkpoint_{iteration:07d}.pt'
@@ -68,12 +70,12 @@ def _train(model, optimizer, device, train_dataloader, test_dataloader, args):
         if iteration % 20 == 0:
             with torch.no_grad():
                 model.eval()
-                test_loss += loss_func(test_iter).detach()
+                test_loss.append(loss_func(test_iter).detach())
                 model.train()
 
         if iteration % args.log_freq == 0:
-            train_loss = train_loss.item() / args.log_freq
-            test_loss = test_loss.item() / (args.log_freq // 20)
+            avg_train_loss = sum(train_loss).item() / len(train_loss)
+            avg_test_loss = sum(test_loss).item() / len(test_loss)
             end_time = time.perf_counter()
             duration, start_time = end_time - start_time, end_time
             lr = oclr.get_last_lr()[0]
@@ -88,19 +90,18 @@ def _train(model, optimizer, device, train_dataloader, test_dataloader, args):
             plot_encoded_figure(test_sample[:, 0].tolist(), test_sample[0, 2], 'test_sample.png')
             plot_encoded_figure(sample, cat, 'random_sample.png')
             print(
-                f'Iteration {iteration:07d}  Train loss {train_loss:.3f}  Test loss {test_loss:.3f}  LR {lr:.3e}  Duration {duration:.3f}')
+                f'Iteration {iteration:07d}  Train loss {avg_train_loss:.3f}  Test loss {avg_test_loss:.3f}  LR {lr:.3e}  Duration {duration:.3f}')
             if args.use_wandb:
                 wandb.log({
                     'iteration': iteration,
-                    'train loss': train_loss,
-                    'test loss': test_loss,
+                    'train loss': avg_train_loss,
+                    'test loss': avg_test_loss,
                     'duration': duration,
                     'learning rate': lr,
                     'train sample': wandb.Image('train_sample.png'),
                     'test sample': wandb.Image('test_sample.png'),
                     'random sample': wandb.Image('random_sample.png'),
                 })
-            train_loss, test_loss = 0., 0.
 
 
 def main():
@@ -132,14 +133,15 @@ def main():
     model, device, optimizer = create_model(args)
     print(model)
     print(train_dataset)
-
+    start_iteration = 1
     if args.resume is not None:
         print('Loading checkpoint', args.resume)
         dic = torch.load(args.resume, map_location='cpu')
         model.load_state_dict(dic['model_state_dict'])
         optimizer.load_state_dict(dic['optimizer_state_dict'])
+        start_iteration = dic['iteration'] + 1
 
-    _train(model, optimizer, device, train_dataloader, test_dataloader, args)
+    _train(start_iteration, model, optimizer, device, train_dataloader, test_dataloader, args)
 
 
 if __name__ == "__main__":
