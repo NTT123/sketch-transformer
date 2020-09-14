@@ -44,7 +44,7 @@ def generate(model, device, category):
         v, p = src[..., 0], src[..., 1]
         v = model.value_embed(v)
         p = model.pos_embed(p)
-        s = (v + p + c) * math.sqrt(model.ninp)
+        s = v + p + c
         mask = model._generate_square_subsequent_mask(len(src)).to(device)
         model.src_mask = mask
 
@@ -101,14 +101,21 @@ def plot_encoded_figure(fig, category, output=None):
 
 def main():
     parser = ArgumentParser()
+    parser.add_argument('--category', default='cat', type=str)
     parser.add_argument('--checkpoint', type=Path)
-    parser.add_argument('--category', type=str)
+    parser.add_argument('--device', default='cpu', type=str)
     parser.add_argument('--output-file', default='sample.png', type=Path)
     args = parser.parse_args()
-    model, device, _ = create_model(args)
+
+    print('loading', args.checkpoint)
+    dic = torch.load(args.checkpoint, map_location='cpu')
+    dic['args'].device = args.device
+    model, device, _ = create_model(dic['args'])
     cat = dataset.categories.index(args.category)
-    tokens = generate(model, device, cat)
-    plot_encoded_figure(tokens, args.output_file, cat)
+    model.load_state_dict(dic['model_state_dict'])
+    with torch.no_grad():
+        tokens = generate(model, device, cat)
+    plot_encoded_figure(tokens, cat, args.output_file)
 
 
 if __name__ == '__main__':
