@@ -116,6 +116,7 @@ def main():
     parser.add_argument('--num-sketch-classes', default=345, type=int)
     parser.add_argument('--num-training-steps', default=1_000_000, type=int)
     parser.add_argument('--num-transformer-layers', default=12, type=int)
+    parser.add_argument('--on-memory-dataset', default=False, action='store_true')
     parser.add_argument('--resume', default=None, type=str)
     parser.add_argument('--use-wandb', default=False, action='store_true')
     parser.add_argument('--vocab-size', default=514, type=int)
@@ -125,8 +126,12 @@ def main():
         wandb.init(project='transformer-sketch')
         wandb.config.update(args)
 
-    train_dataset = DrawQuick(mode='train')
-    test_dataset = DrawQuick(mode='test')
+    if args.on_memory_dataset:
+        data = dataset.load_data_to_memory()
+    else:
+        data = None
+    train_dataset = DrawQuick(data=data, mode='train')
+    test_dataset = DrawQuick(data=data, mode='test')
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=1, collate_fn=dq_collate)
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=1, collate_fn=dq_collate)
 

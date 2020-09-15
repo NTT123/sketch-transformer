@@ -1,11 +1,13 @@
 import math
 import os
+import random
 import struct
 import time
 import urllib.parse
 from concurrent import futures
 from functools import partial
 from multiprocessing import Pool
+from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from struct import unpack
 from urllib.request import urlopen, urlretrieve
@@ -52,6 +54,20 @@ categories = [
     'toothpaste', 'tornado', 'tractor', 'traffic light', 'train', 'tree', 'triangle', 'trombone', 'truck', 'trumpet',
     't-shirt', 'umbrella', 'underwear', 'van', 'vase', 'violin', 'washing machine', 'watermelon', 'waterslide', 'whale',
     'wheel', 'windmill', 'wine bottle', 'wine glass', 'wristwatch', 'yoga', 'zebra', 'zigzag'
+]
+
+
+categories = [
+    'airplane',
+    'bird',
+    'bus',
+    'car',
+    'cat',
+    'flower',
+    'sun',
+    'table',
+    'underwear',
+    'whale',
 ]
 
 
@@ -115,7 +131,7 @@ def encode_figure(fig):
     return out[..., 0][:], out[..., 1][:]
 
 
-def seq_data(mode='train'):
+def _seq_data(mode='train'):
     def init_all_files():
         return [[open(binary_data_dir / f'{cat}.bin', 'rb'), 0] for cat in categories]
 
@@ -155,13 +171,56 @@ def _download_binary_data():
         list(tqdm.tqdm(p.imap(_downloader, categories), total=len(categories)))
 
 
+def _load_cat(inputs):
+    i, cat = inputs
+    out = []
+    with open(binary_data_dir / f'{cat}.bin', 'rb') as f:
+        while True:
+            try:
+                fig = unpack_drawing(f)['image']
+                token, pos = encode_figure(fig)
+                out.append([i, token, pos])
+            except struct.error:
+                break
+    return out
+
+
+def load_data_to_memory():
+    if not binary_data_dir.exists():
+        binary_data_dir.mkdir(parents=True, exist_ok=True)
+        _download_binary_data()
+    print('loading data to memory...')
+    cats = list(enumerate(categories))
+    out = []
+    for cat in tqdm.tqdm(cats):
+        out.extend(_load_cat(cat))
+    random.Random(42).shuffle(out)
+    return out
+
+
+def _data_shuffle_loop(data):
+    while True:
+        random.shuffle(data)
+        for f in data:
+            yield f
+
+
 class DrawQuick(torch.utils.data.IterableDataset):
-    def __init__(self, mode='train'):
+    def __init__(self, data=None, mode='train'):
         super().__init__()
         self.mode = mode
         if not binary_data_dir.exists():
             binary_data_dir.mkdir(parents=True, exist_ok=True)
             _download_binary_data()
+
+        if data is not None:
+            L = len(data) // 10
+            if mode == 'test':
+                self.data = data[:L]
+            elif mode == 'train':
+                self.data = data[L:]
+        else:
+            self.data = None
 
     def __repr__(self):
         return (
@@ -171,7 +230,10 @@ class DrawQuick(torch.utils.data.IterableDataset):
         )
 
     def __iter__(self):
-        return seq_data(self.mode)
+        if self.data is None:
+            return _seq_data(self.mode)
+        else:
+            return _data_shuffle_loop(self.data)
 
 
 def dq_collate(batch):
@@ -190,7 +252,8 @@ def dq_collate(batch):
 
 
 if __name__ == '__main__':
-    dset = DrawQuick('train')
+    data = load_data_to_memory()
+    dset = DrawQuick(data=data, mode='test')
     train_dataloader = torch.utils.data.DataLoader(dset, batch_size=128, num_workers=1, collate_fn=dq_collate)
     for batch in tqdm.tqdm(train_dataloader):
         pass
