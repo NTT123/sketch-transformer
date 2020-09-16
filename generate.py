@@ -36,15 +36,15 @@ def generate(model, device, category):
 
     c = [[category]]
     c = torch.tensor(c, dtype=torch.long)[:, None, :].to(device)
-    c = c[..., 0]
+    c = c[:1, :, 0]
     c = model.class_embed(c)
 
     for i in range(256):
         src = torch.tensor(tokens, dtype=torch.long)[:, None, :].to(device)
-        v, p = src[..., 0], src[..., 1]
+        v, p = src[1:, :, 0], src[1:, :, 1]
         v = model.value_embed(v)
         p = model.pos_embed(p)
-        s = v + p + c
+        s = torch.cat([c, v + p], dim=0)
         mask = model._generate_square_subsequent_mask(len(src)).to(device)
         model.src_mask = mask
 
@@ -54,12 +54,11 @@ def generate(model, device, category):
         idx = idx.view(-1).item()
         if idx == 513:
             break
-        if idx < 256:
+        elif idx < 256:
             mode = 1
-        if 256 <= idx < 512:
+        elif 256 <= idx < 512:
             mode = 2
-
-        if idx == 512:
+        elif idx == 512:
             mode = 3
 
         if idx < 256:
@@ -83,7 +82,7 @@ def plot_encoded_figure(fig, category, output=None):
             y.append(512 - token)
         elif token == 512:
             if len(x) > 1:
-                plt.plot(x, y, c='black', linewidth=1.)
+                plt.plot(x, y, linewidth=1.)
             else:
                 plt.scatter(x, y, s=1, c='black')
             x, y = [], []
@@ -106,6 +105,7 @@ def main():
     parser.add_argument('--device', default='cpu', type=str)
     parser.add_argument('--output-file', default='sample.png', type=Path)
     args = parser.parse_args()
+    print(args)
 
     print('loading', args.checkpoint)
     dic = torch.load(args.checkpoint, map_location='cpu')

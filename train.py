@@ -106,11 +106,11 @@ def _train(start_iteration, model, optimizer, device, train_dataloader, test_dat
 
 def main():
     parser = ArgumentParser()
-    parser.add_argument('--batch-size', default=64, type=int)
+    parser.add_argument('--batch-size', default=128, type=int)
     parser.add_argument('--device', default='cuda', type=str)
-    parser.add_argument('--dropout-rate', default=0.2, type=float)
+    parser.add_argument('--dropout-rate', default=0.1, type=float)  # underfitting :-(
     parser.add_argument('--embed-dim', default=256, type=int)
-    parser.add_argument('--learning-rate', default=1e-4, type=float)
+    parser.add_argument('--learning-rate', default=1e-3, type=float)
     parser.add_argument('--log-freq', default=1000, type=int)
     parser.add_argument('--num-att-heads', default=4, type=int)
     parser.add_argument('--num-sketch-classes', default=345, type=int)

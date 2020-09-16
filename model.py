@@ -44,11 +44,11 @@ class SketchModel(nn.Module):
             mask = self._generate_square_subsequent_mask(len(src)).to(device)
             self.src_mask = mask
 
-        v, p, c = src[..., 0], src[..., 1], src[..., 2]
+        v, p, c = src[1:, :, 0], src[1:, :, 1], src[:1, :, 2]
         v = self.value_embed(v)
         p = self.pos_embed(p)
         c = self.class_embed(c)
-        src = v + p + c
+        src = torch.cat([c, v + p], dim=0)
         output = self.transformer_encoder(src, self.src_mask)
         output = self.decoder(output)
         return output
