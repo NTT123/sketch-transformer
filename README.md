@@ -1,8 +1,19 @@
 # sketch-transformer
-Modeling Draw, Quick! dataset using transformers
+Modeling Draw, Quick! dataset using transformers.
+
+<img src="./assets/generated_sample.png" alt="drawing" width="200"/>
 
 ## Train model
     $ python train.py --on-memory-dataset
 
+<img src="./assets/training_logs.png" alt="training logs"/>
+
+## Pretrained model
+
+A pretrained model (`test llh: 3.002`) is at `assets/model_1000000.pt`
+
+Used training command: `python train.py --num-transformer-layers=8 --dropout-rate=0.1 --batch-size=128 --learning-rate=1e-3 --on-memory-dataset --log-freq=10000`
+
 ## Generate sample
-    $ python generate.py --category=cat --checkpoint=[path-to-checkpoint.pt]
+
+    $ python generate.py --nucleus-probability=0.5 --category=car --checkpoint=[path/to/checkpoint.pt]

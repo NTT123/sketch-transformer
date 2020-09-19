@@ -47,7 +47,8 @@ def _train(start_iteration, model, optimizer, device, train_dataloader, test_dat
     test_iter = iter(test_dataloader)
     train_iter = iter(train_dataloader)
     loss_func = partial(_loss_func, model=model, device=device)
-    oclr = OneCycleLR(optimizer, args.learning_rate, pct_start=0.01, total_steps=1_000_000, cycle_momentum=False)
+    oclr = OneCycleLR(optimizer, args.learning_rate, pct_start=0.01, total_steps=1_000_000,
+                      cycle_momentum=False, last_epoch=start_iteration - 2)
 
     for iteration in range(start_iteration, 1 + args.num_training_steps):
         loss = loss_func(train_iter)
@@ -115,7 +116,7 @@ def main():
     parser.add_argument('--num-att-heads', default=4, type=int)
     parser.add_argument('--num-sketch-classes', default=345, type=int)
     parser.add_argument('--num-training-steps', default=1_000_000, type=int)
-    parser.add_argument('--num-transformer-layers', default=12, type=int)
+    parser.add_argument('--num-transformer-layers', default=8, type=int)
     parser.add_argument('--on-memory-dataset', default=False, action='store_true')
     parser.add_argument('--resume', default=None, type=str)
     parser.add_argument('--use-wandb', default=False, action='store_true')

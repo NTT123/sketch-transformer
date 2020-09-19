@@ -30,7 +30,7 @@ def nucleus_sampling(logit, mode, p=0.8):
     return torch.distributions.categorical.Categorical(probs=pr).sample()
 
 
-def generate(model, device, category):
+def generate(model, device, category, nucleus_prob):
     tokens, pos, mode = [[514, 0]], 0, 0
     model.eval()
 
@@ -50,7 +50,7 @@ def generate(model, device, category):
 
         o = model.transformer_encoder(s, mask)
         o = model.decoder(o[-1])
-        idx = nucleus_sampling(o.view(-1), mode)
+        idx = nucleus_sampling(o.view(-1), mode, nucleus_prob)
         idx = idx.view(-1).item()
         if idx == 513:
             break
@@ -103,6 +103,7 @@ def main():
     parser.add_argument('--category', default='cat', type=str)
     parser.add_argument('--checkpoint', type=Path)
     parser.add_argument('--device', default='cpu', type=str)
+    parser.add_argument('--nucleus-probability', default=0.7, type=float)
     parser.add_argument('--output-file', default='sample.png', type=Path)
     args = parser.parse_args()
     print(args)
@@ -114,7 +115,7 @@ def main():
     cat = dataset.categories.index(args.category)
     model.load_state_dict(dic['model_state_dict'])
     with torch.no_grad():
-        tokens = generate(model, device, cat)
+        tokens = generate(model, device, cat, args.nucleus_probability)
     plot_encoded_figure(tokens, cat, args.output_file)
 
 
